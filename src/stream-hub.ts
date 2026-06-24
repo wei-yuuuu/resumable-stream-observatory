@@ -90,7 +90,7 @@ export class StreamHub {
       start: async (controller) => {
         let cursor = after;
         try {
-          for (;;) {
+          while (true) {
             const observedVersion = this.#version(streamId);
             const chunks = this.#chunksAfter(streamId, cursor);
             for (const chunk of chunks) {
@@ -133,7 +133,7 @@ export class StreamHub {
 
   async #consume(streamId: string, lease: string, reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
     try {
-      for (;;) {
+      while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         if (value) this.#append(streamId, lease, value);

@@ -69,7 +69,7 @@ async function sendSse(
 
   const reader = toSse(hub.tail(streamId, after)).getReader();
   req.on("close", () => void reader.cancel());
-  for (;;) {
+  while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     res.write(value);
