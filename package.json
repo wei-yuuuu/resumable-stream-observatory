@@ -12,7 +12,7 @@
   "scripts": {
     "dev": "node --watch --experimental-strip-types src/demo/server.ts",
     "start": "node --experimental-strip-types src/demo/server.ts",
-    "check": "node --check src/types.ts && node --check src/stream-hub.ts && node --check src/sse.ts && node --check src/index.ts && node --check src/demo/maze-source.ts && node --check src/demo/server.ts"
+    "check": "node --check src/types.ts && node --check src/keep-alive.ts && node --check src/stream-hub.ts && node --check src/raw.ts && node --check src/sse.ts && node --check src/index.ts && node --check src/demo/maze-source.ts && node --check src/demo/server.ts"
   },
   "devDependencies": {
     "@types/node": "^26.0.0"

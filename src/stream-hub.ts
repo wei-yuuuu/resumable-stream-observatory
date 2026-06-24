@@ -20,10 +20,12 @@ type StoredStream = {
   error: string | null;
 };
 
-type StoredChunk = {
+type StoredBufferChunk = {
   seq: number;
   data: Uint8Array;
 };
+
+const tailBatchSize = 64;
 
 export class StreamHub {
   #db: DatabaseSync;
@@ -39,14 +41,14 @@ export class StreamHub {
       PRAGMA synchronous = NORMAL;
       CREATE TABLE IF NOT EXISTS streams (
         id TEXT PRIMARY KEY,
-        status TEXT NOT NULL CHECK(status IN ('streaming', 'completed', 'failed')),
+        status TEXT NOT NULL CHECK(status IN ('streaming', 'completed', 'failed', 'interrupted')),
         producer_lease TEXT NOT NULL,
         next_seq INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         error TEXT
       ) STRICT;
-      CREATE TABLE IF NOT EXISTS chunks (
+      CREATE TABLE IF NOT EXISTS buffer_chunks (
         stream_id TEXT NOT NULL REFERENCES streams(id),
         seq INTEGER NOT NULL,
         data BLOB NOT NULL,
@@ -54,6 +56,7 @@ export class StreamHub {
         PRIMARY KEY(stream_id, seq)
       ) STRICT;
     `);
+    this.#interruptOrphanedStreams();
   }
 
   create({ source, streamId = randomUUID() }: CreateStreamOptions): StreamInfo {
@@ -67,7 +70,11 @@ export class StreamHub {
     // The provider drain belongs to the hub, not to the endpoint response or
     // browser connection that created it. Hosts with a lifecycle API can keep
     // this task alive after that request has already returned.
-    this.#keepAliveWhile(() => this.#startProducer(streamId, producerLease, source));
+    try {
+      this.#keepAliveWhile(() => this.#startProducer(streamId, producerLease, source));
+    } catch (error) {
+      this.#finish(streamId, producerLease, "failed", messageOf(error));
+    }
     return this.get(streamId)!;
   }
 
@@ -89,34 +96,44 @@ export class StreamHub {
 
   tailFrom(streamId: string, after: number): ReadableStream<TailEvent> {
     const aborted = new AbortController();
+    const pending: TailEvent[] = [];
+    let cursor = after;
+    let terminal = false;
 
     return new ReadableStream<TailEvent>({
-      start: async (controller) => {
-        let cursor = after;
-        try {
-          while (true) {
-            const observedVersion = this.#version(streamId);
-            const chunks = this.#chunksAfter(streamId, cursor);
-            for (const chunk of chunks) {
+      pull: async (controller) => {
+        while (pending.length === 0 && !terminal && !aborted.signal.aborted) {
+          const observedVersion = this.#version(streamId);
+          const bufferChunks = this.#bufferChunksAfter(streamId, cursor, tailBatchSize);
+          if (bufferChunks.length > 0) {
+            for (const chunk of bufferChunks) {
               cursor = chunk.seq;
-              controller.enqueue({ kind: "chunk", seq: chunk.seq, data: chunk.data });
+              pending.push({ kind: "chunk", seq: chunk.seq, data: chunk.data });
             }
-
-            const stream = this.get(streamId);
-            if (!stream) {
-              controller.enqueue({ kind: "error", message: "stream not found" });
-              break;
-            }
-            if (stream.status !== "streaming") {
-              controller.enqueue({ kind: "end", status: stream.status, error: stream.error });
-              break;
-            }
-            await this.#waitForChange(streamId, observedVersion, aborted.signal);
-            if (aborted.signal.aborted) break;
+            break;
           }
-        } finally {
-          controller.close();
+
+          const stream = this.get(streamId);
+          if (!stream) {
+            pending.push({ kind: "error", message: "stream not found" });
+            terminal = true;
+            break;
+          }
+          if (stream.status !== "streaming") {
+            pending.push({ kind: "end", status: stream.status, error: stream.error });
+            terminal = true;
+            break;
+          }
+          await this.#waitForChange(streamId, observedVersion, aborted.signal);
         }
+
+        if (aborted.signal.aborted) {
+          controller.close();
+          return;
+        }
+        const event = pending.shift();
+        if (event) controller.enqueue(event);
+        if (terminal && pending.length === 0) controller.close();
       },
       cancel: () => aborted.abort(),
     });
@@ -161,7 +178,7 @@ export class StreamHub {
     try {
       const now = Date.now();
       this.#db.prepare(`
-        INSERT INTO chunks (stream_id, seq, data, created_at) VALUES (?, ?, ?, ?)
+        INSERT INTO buffer_chunks (stream_id, seq, data, created_at) VALUES (?, ?, ?, ?)
       `).run(streamId, stream.next_seq, data, now);
       const updated = this.#db.prepare(`
         UPDATE streams SET next_seq = ?, updated_at = ? WHERE id = ? AND producer_lease = ?
@@ -195,11 +212,11 @@ export class StreamHub {
     `).get(streamId) as StoredStream | undefined;
   }
 
-  #chunksAfter(streamId: string, after: number): StoredChunk[] {
+  #bufferChunksAfter(streamId: string, after: number, limit: number): StoredBufferChunk[] {
     return this.#db.prepare(`
-      SELECT seq, data FROM chunks
-      WHERE stream_id = ? AND seq > ? ORDER BY seq ASC
-    `).all(streamId, after) as StoredChunk[];
+      SELECT seq, data FROM buffer_chunks
+      WHERE stream_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?
+    `).all(streamId, after, limit) as StoredBufferChunk[];
   }
 
   #version(streamId: string): number {
@@ -229,6 +246,19 @@ export class StreamHub {
   #notify(streamId: string): void {
     this.#versions.set(streamId, this.#version(streamId) + 1);
     for (const wake of this.#waiters.get(streamId) ?? []) wake();
+  }
+
+  #interruptOrphanedStreams(): void {
+    // A previous hub process cannot keep its provider TCP connection after it
+    // exits. Mark its unfinished streams explicitly so callers replay partial
+    // bytes and recover the higher-level turn instead of waiting forever.
+    this.#db.prepare(`
+      UPDATE streams
+      SET status = 'interrupted',
+          error = 'stream hub restarted before the producer completed',
+          updated_at = ?
+      WHERE status = 'streaming'
+    `).run(Date.now());
   }
 }
 

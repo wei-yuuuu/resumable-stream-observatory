@@ -4,15 +4,21 @@ The demo deliberately has two durable stores:
 
 ```text
 SQLite (server)                  IndexedDB (one browser profile)
-streams + chunks                 events + cursors
+streams + buffer_chunks          events + cursors
 source of replay truth           local cache / durable client cursor
 ```
 
 SQLite is the authoritative server-side log. IndexedDB lets one browser restore
 its already-applied view immediately and tell the server where to resume.
 
-The server appends a `chunks` row and advances `streams.next_seq` in the same
+The server appends a `buffer_chunks` row and advances `streams.next_seq` in the same
 SQLite transaction. It notifies live tailers only after that transaction commits.
+
+This learning project intentionally has no schema migration system. A database
+created by an earlier demo schema (for example, one with a `chunks` table or
+without the `interrupted` status) is not supported by the current code; for a
+clean local reset, stop the server and delete `data/streams.sqlite` plus its
+`-wal` and `-shm` sidecar files.
 
 ## SQLite: `streams`
 
@@ -35,16 +41,18 @@ sqlite3 -header -column data/streams.sqlite "
 Columns:
 
 - `id`: Stable UUID used by clients in `/streams/:id`.
-- `status`: `streaming`, `completed`, or `failed`.
+- `status`: `streaming`, `completed`, `failed`, or `interrupted`. On hub
+  startup, an old `streaming` row becomes `interrupted`: its previous producer
+  process is gone, so no more chunks can arrive from that connection.
 - `producer_lease`: Internal UUID proving which background producer owns this
   stream. Do not expose or modify it in normal application code.
 - `next_seq`: Sequence number to allocate to the next persisted chunk. The most
   recently written chunk is normally `next_seq - 1`.
 - `created_at`: Unix milliseconds when the stream was created.
 - `updated_at`: Unix milliseconds of the latest chunk or terminal state.
-- `error`: Failure message when `status = 'failed'`; otherwise `NULL`.
+- `error`: Failure or interruption reason; otherwise `NULL`.
 
-## SQLite: `chunks`
+## SQLite: `buffer_chunks`
 
 Every row is one raw `Uint8Array` received from a `StreamSource`. The composite
 primary key makes a sequence unique within a stream.
@@ -56,7 +64,7 @@ sqlite3 -header -column data/streams.sqlite "
     seq,
     length(data) AS byte_length,
     datetime(created_at / 1000, 'unixepoch', 'localtime') AS created_at
-  FROM chunks
+  FROM buffer_chunks
   WHERE stream_id = '<stream-id>'
   ORDER BY seq ASC;
 "
@@ -75,7 +83,7 @@ The maze demo happens to store UTF-8 JSON, so it can be inspected like this:
 ```sh
 sqlite3 -header -column data/streams.sqlite "
   SELECT seq, CAST(data AS TEXT) AS maze_event
-  FROM chunks
+  FROM buffer_chunks
   WHERE stream_id = '<stream-id>'
   ORDER BY seq ASC;
 "

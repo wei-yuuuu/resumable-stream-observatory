@@ -11,7 +11,7 @@ The package boundary is deliberately small:
 
 ```text
 user's StreamSource factory ──> StreamHub ──> ReadableStream<TailEvent>
-                                        └──> toSse() (optional adapter)
+                                        └──> toRawByteStream() / toSse() adapters
 ```
 
 `StreamHub` knows nothing about mazes, HTTP, or SSE. The maze source and the
@@ -19,9 +19,11 @@ HTTP server are demo code under `src/demo/`.
 
 `StreamHub` also accepts an optional `keepAliveWhile(task)` adapter. A long-lived
 Node process uses the default `void task()` behavior; a runtime that needs an
-explicit background-work lease can inject its own lifecycle primitive. This
-keeps the drain running after a response returns, but cannot preserve a TCP
-connection across a hub process restart or redeploy.
+explicit background-work lease can inject its own lifecycle primitive. The
+included `createKeepAliveWhile({ begin })` helper starts a host heartbeat/alarm
+and always calls its release function when the drain settles, including errors.
+This keeps the drain running after a response returns, but cannot preserve a
+TCP connection across a hub process restart or redeploy.
 
 ## The shape
 
@@ -32,7 +34,7 @@ client B ─┘                              │
                                          ▼
                               StreamBuffer(streamId)
                               - status / producer lease
-                              - SQLite chunks(seq, bytes)
+                              - SQLite buffer_chunks(seq, bytes)
                               - tailFrom(streamId, cursor)
                               - notifications
                                          ▲
@@ -51,17 +53,26 @@ that owns it has been killed.
 1. `hub.create({ source })` creates a stable `streamId`, marks it `streaming`,
    acquires a producer lease, and invokes the source factory in a background
    task without awaiting it.
-2. Every provider chunk is appended as raw bytes to `chunks(stream_id, seq)`.
+2. Every provider chunk is appended as raw bytes to
+   `buffer_chunks(stream_id, seq)`.
    Only **after** SQLite accepts it are tailers notified.
 3. A client reconnects with `GET /streams/:id?after=<cursor>`. The server
    replays every `seq > cursor`, then tails new rows.
 4. The browser writes an event and its cursor to IndexedDB before considering
    the event applied. It sends that durable cursor next time.
-5. Notifications are only wake-ups, never the source of truth. After every
+5. `tailFrom()` is consumer-driven: its `pull()` reads SQLite in bounded
+   batches, then waits for a notification only when caught up. Notifications
+   are only wake-ups, never the source of truth. After every
    wake-up a tailer queries SQLite again, so coalesced notifications and replay
    races are harmless.
-6. Terminal stream states are `completed` and `failed`. `tailFrom()` sends a
-   final SSE `end` event once all rows are replayed.
+6. Terminal stream states are `completed`, `failed`, and `interrupted`.
+   `tailFrom()` sends a final SSE `end` event once all rows are replayed.
+
+On hub startup, any persisted `streaming` row is changed to `interrupted`: its
+previous process is gone, so its provider connection cannot still be live. A
+caller can replay the partial bytes and let the higher-level agent or workflow
+decide how to recover. This is the same log used for browser reconnection; the
+only difference is whether a live producer remains attached.
 
 ## First visual use case
 
@@ -86,6 +97,11 @@ hub.create({ source });
 
 The ownership rule remains the same: the drain belongs to `StreamHub`, not to
 the HTTP response returned to the initiating client.
+
+When replaying a provider stream, use `toRawByteStream(hub.tailFrom(...))` and
+pass the bytes back through that provider's native parser. The library stores
+raw bytes specifically so it does not need to understand each provider's SSE
+wire format.
 
 ## Deliberately postponed
 

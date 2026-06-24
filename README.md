@@ -25,7 +25,7 @@ factory after the stream metadata has been written, in a background task that
 is independent of the caller's HTTP response.
 
 ```ts
-import { StreamHub, toSse } from "resumable-stream-observatory";
+import { StreamHub, toRawByteStream } from "resumable-stream-observatory";
 
 const hub = new StreamHub({ databasePath: "./data/streams.sqlite" });
 
@@ -37,12 +37,16 @@ const stream = hub.create({
   },
 });
 
-// An HTTP framework can return this as text/event-stream.
-const sseBody = toSse(hub.tailFrom(stream.id, -1));
+// Return the original provider bytes. Its native SDK/parser can consume this
+// as though it were the original provider response.
+const rawBody = toRawByteStream(hub.tailFrom(stream.id, -1));
 ```
 
-`hub.tailFrom(streamId, cursor)` yields typed events. `toSse()` is merely the
-included Node/SSE adapter; a user can instead adapt the same events to a
+`hub.tailFrom(streamId, cursor)` yields typed events. It uses stream `pull()`
+and reads SQLite in small batches, so a slow consumer does not fill its stream
+queue with an entire replay. `toRawByteStream()` preserves the provider's byte
+stream, avoiding a custom parser for each provider SSE format. `toSse()` is a
+separate application-envelope adapter; a user can also adapt typed events to a
 WebSocket, a CLI renderer, or another transport.
 
 ### Runtime lifecycle
@@ -63,6 +67,27 @@ provider TCP connection survive a process restart or redeployment. That still
 requires running the hub in a separately durable runtime or using a
 provider-specific resume/checkpoint protocol.
 
+For the article's deploy-survival property, run the `StreamHub` in a separate,
+long-lived buffer service or durable runtime. The included maze server is a
+single-process learning demo, so it intentionally does not provide that
+deployment boundary by itself.
+
+If the runtime gives you primitive alarm operations rather than its own
+`keepAliveWhile`, use `createKeepAliveWhile()`. Its lease is released on both
+success and failure, so a completed or failed generation does not leak a
+heartbeat:
+
+```ts
+import { createKeepAliveWhile } from "resumable-stream-observatory";
+
+const keepAliveWhile = createKeepAliveWhile({
+  begin() {
+    const alarm = startHeartbeatAlarm();
+    return () => stopHeartbeatAlarm(alarm);
+  },
+});
+```
+
 ## Layout
 
 ```text
@@ -70,6 +95,8 @@ src/
   index.ts             public library exports
   types.ts             public contracts: source, lifecycle, stream, tail event
   stream-hub.ts        SQLite buffer, producer lease, replay/live tail
+  keep-alive.ts        host heartbeat/alarm lease adapter
+  raw.ts               provider-byte replay adapter
   sse.ts               optional SSE transport adapter
   demo/
     maze-source.ts     replaceable StreamSource implementation

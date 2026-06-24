@@ -1,4 +1,4 @@
-export type StreamStatus = "streaming" | "completed" | "failed";
+export type StreamStatus = "streaming" | "completed" | "failed" | "interrupted";
 
 export type StreamInfo = {
   id: string;
@@ -24,6 +24,14 @@ export type StreamSource = (
  * request that created the stream has already returned.
  */
 export type KeepAliveWhile = (task: () => Promise<void>) => void;
+
+/**
+ * A host-owned liveness lease. `begin()` should start its heartbeat or alarm
+ * and return a function that stops it.
+ */
+export type KeepAliveLease = {
+  begin: () => () => void;
+};
 
 export type CreateStreamOptions = {
   source: StreamSource;
