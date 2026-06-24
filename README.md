@@ -45,12 +45,30 @@ const sseBody = toSse(hub.tailFrom(stream.id, -1));
 included Node/SSE adapter; a user can instead adapt the same events to a
 WebSocket, a CLI renderer, or another transport.
 
+### Runtime lifecycle
+
+The default is suitable for a long-lived Node process: it starts the producer
+without awaiting it. A runtime that might stop work after returning an HTTP
+response should inject its lifecycle primitive:
+
+```ts
+const hub = new StreamHub({
+  databasePath: "./data/streams.sqlite",
+  keepAliveWhile: (task) => runtime.keepAliveWhile(task),
+});
+```
+
+`keepAliveWhile` keeps the background **drain task** alive; it does not make a
+provider TCP connection survive a process restart or redeployment. That still
+requires running the hub in a separately durable runtime or using a
+provider-specific resume/checkpoint protocol.
+
 ## Layout
 
 ```text
 src/
   index.ts             public library exports
-  types.ts             public contracts: source, stream, tail event
+  types.ts             public contracts: source, lifecycle, stream, tail event
   stream-hub.ts        SQLite buffer, producer lease, replay/live tail
   sse.ts               optional SSE transport adapter
   demo/

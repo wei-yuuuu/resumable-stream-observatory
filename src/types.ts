@@ -19,6 +19,12 @@ export type StreamSource = (
   context: StreamSourceContext,
 ) => ReadableStream<Uint8Array> | Promise<ReadableStream<Uint8Array>>;
 
+/**
+ * Lets a hosting runtime keep a background producer drain alive after the
+ * request that created the stream has already returned.
+ */
+export type KeepAliveWhile = (task: () => Promise<void>) => void;
+
 export type CreateStreamOptions = {
   source: StreamSource;
   streamId?: string;
@@ -26,6 +32,7 @@ export type CreateStreamOptions = {
 
 export type StreamHubOptions = {
   databasePath: string;
+  keepAliveWhile?: KeepAliveWhile;
 };
 
 export type TailEvent =

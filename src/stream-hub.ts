@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type {
   CreateStreamOptions,
+  KeepAliveWhile,
   StreamHubOptions,
   StreamInfo,
   StreamSource,
@@ -26,11 +27,13 @@ type StoredChunk = {
 
 export class StreamHub {
   #db: DatabaseSync;
+  #keepAliveWhile: KeepAliveWhile;
   #versions = new Map<string, number>();
   #waiters = new Map<string, Set<() => void>>();
 
-  constructor({ databasePath }: StreamHubOptions) {
+  constructor({ databasePath, keepAliveWhile = nodeKeepAliveWhile }: StreamHubOptions) {
     this.#db = new DatabaseSync(databasePath);
+    this.#keepAliveWhile = keepAliveWhile;
     this.#db.exec(`
       PRAGMA journal_mode = WAL;
       PRAGMA synchronous = NORMAL;
@@ -61,9 +64,10 @@ export class StreamHub {
       VALUES (?, 'streaming', ?, 0, ?, ?)
     `).run(streamId, producerLease, now, now);
 
-    // Do not await. This source now belongs to the hub rather than to the
-    // endpoint response or browser connection that created it.
-    void this.#startProducer(streamId, producerLease, source);
+    // The provider drain belongs to the hub, not to the endpoint response or
+    // browser connection that created it. Hosts with a lifecycle API can keep
+    // this task alive after that request has already returned.
+    this.#keepAliveWhile(() => this.#startProducer(streamId, producerLease, source));
     return this.get(streamId)!;
   }
 
@@ -241,4 +245,11 @@ function toStreamInfo(stream: StoredStream): StreamInfo {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function nodeKeepAliveWhile(task: () => Promise<void>): void {
+  // A long-lived Node process stays alive while its active sockets, timers, or
+  // other event-loop handles remain active. Serverless hosts should inject
+  // their own keep-alive implementation instead.
+  void task();
 }

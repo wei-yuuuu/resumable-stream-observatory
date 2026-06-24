@@ -17,6 +17,12 @@ user's StreamSource factory ──> StreamHub ──> ReadableStream<TailEvent>
 `StreamHub` knows nothing about mazes, HTTP, or SSE. The maze source and the
 HTTP server are demo code under `src/demo/`.
 
+`StreamHub` also accepts an optional `keepAliveWhile(task)` adapter. A long-lived
+Node process uses the default `void task()` behavior; a runtime that needs an
+explicit background-work lease can inject its own lifecycle primitive. This
+keeps the drain running after a response returns, but cannot preserve a TCP
+connection across a hub process restart or redeploy.
+
 ## The shape
 
 ```text
