@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resumable Stream Observatory</title>
+    <style>
+      :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #10131a; color: #e6edf7; }
+      body { max-width: 960px; margin: 32px auto; padding: 0 20px; }
+      h1 { letter-spacing: -0.06em; } .hint, #status { color: #9eb0c9; }
+      section { background: #191f2b; border: 1px solid #2d394d; border-radius: 10px; padding: 16px; margin: 16px 0; }
+      button { font: inherit; padding: 8px; border-radius: 6px; border: 1px solid #41516b; background: #2b6ee9; color: white; cursor: pointer; }
+      button.secondary { background: #293244; } button:disabled { opacity: .55; cursor: not-allowed; }
+      #maze { width: 100%; max-width: 800px; aspect-ratio: 24 / 14; background: #080a0f; border-radius: 8px; border: 1px solid #2d394d; display: block; }
+      #maze-lines { stroke: #79d8a5; stroke-width: .16; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .edge-live { stroke-dasharray: 1; stroke-dashoffset: 1; animation: carve .36s ease-out forwards; }
+      @keyframes carve { to { stroke-dashoffset: 0; } }
+      #events { height: 220px; overflow: auto; white-space: pre-wrap; color: #bed0e9; font-size: 12px; line-height: 1.45; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; } code { color: #79d8a5; }
+    </style>
+  </head>
+  <body>
+    <h1>Resumable Stream Observatory</h1>
+    <p class="hint">The active stream is remembered in this browser. Reload, open a new tab, or go offline and return: it resumes from the IndexedDB cursor automatically.</p>
+
+    <section class="row">
+      <button id="create">Start a fresh maze</button>
+      <button id="reconnect">Reconnect saved maze</button>
+      <button id="disconnect" class="secondary">Disconnect</button>
+      <button id="forget" class="secondary">Forget saved maze</button>
+    </section>
+
+    <section>
+      <div id="status">No stream connected.</div>
+      <svg id="maze" viewBox="0 0 24 14" role="img" aria-label="A maze assembled from durable stream events">
+        <defs>
+          <pattern id="grid" width="1" height="1" patternUnits="userSpaceOnUse">
+            <path d="M 1 0 L 0 0 0 1" fill="none" stroke="#1a2433" stroke-width=".025" />
+          </pattern>
+        </defs>
+        <rect width="24" height="14" fill="url(#grid)" />
+        <g id="maze-lines"></g>
+      </svg>
+    </section>
+
+    <section>
+      <strong>Durable browser event log</strong>
+      <div id="events"></div>
+    </section>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "resumable-stream-observatory",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "engines": {
+    "node": ">=24.16.0"
+  },
+  "scripts": {
+    "dev": "node --watch --experimental-strip-types src/demo/server.ts",
+    "start": "node --experimental-strip-types src/demo/server.ts",
+    "check": "node --check src/types.ts && node --check src/stream-hub.ts && node --check src/sse.ts && node --check src/index.ts && node --check src/demo/maze-source.ts && node --check src/demo/server.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0"
+  }
+}
