@@ -38,10 +38,10 @@ const stream = hub.create({
 });
 
 // An HTTP framework can return this as text/event-stream.
-const sseBody = toSse(hub.tail(stream.id, -1));
+const sseBody = toSse(hub.tailFrom(stream.id, -1));
 ```
 
-`hub.tail(streamId, cursor)` yields typed events. `toSse()` is merely the
+`hub.tailFrom(streamId, cursor)` yields typed events. `toSse()` is merely the
 included Node/SSE adapter; a user can instead adapt the same events to a
 WebSocket, a CLI renderer, or another transport.
 

@@ -27,7 +27,7 @@ client B ─┘                              │
                               StreamBuffer(streamId)
                               - status / producer lease
                               - SQLite chunks(seq, bytes)
-                              - tailFrom(cursor)
+                              - tailFrom(streamId, cursor)
                               - notifications
                                          ▲
                                          │ background drain
@@ -54,8 +54,8 @@ that owns it has been killed.
 5. Notifications are only wake-ups, never the source of truth. After every
    wake-up a tailer queries SQLite again, so coalesced notifications and replay
    races are harmless.
-6. Terminal stream states are `completed` and `failed`. The tail sends a final
-   SSE `end` event once all rows are replayed.
+6. Terminal stream states are `completed` and `failed`. `tailFrom()` sends a
+   final SSE `end` event once all rows are replayed.
 
 ## First visual use case
 

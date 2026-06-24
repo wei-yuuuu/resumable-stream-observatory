@@ -67,7 +67,7 @@ async function sendSse(
     "X-Buffer-Status": status,
   });
 
-  const reader = toSse(hub.tail(streamId, after)).getReader();
+  const reader = toSse(hub.tailFrom(streamId, after)).getReader();
   req.on("close", () => void reader.cancel());
   while (true) {
     const { done, value } = await reader.read();

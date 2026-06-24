@@ -83,7 +83,7 @@ export class StreamHub {
     return streams.map(toStreamInfo);
   }
 
-  tail(streamId: string, after: number): ReadableStream<TailEvent> {
+  tailFrom(streamId: string, after: number): ReadableStream<TailEvent> {
     const aborted = new AbortController();
 
     return new ReadableStream<TailEvent>({
