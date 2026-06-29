@@ -11,6 +11,17 @@ source of replay truth           local cache / durable client cursor
 SQLite is the authoritative server-side log. IndexedDB lets one browser restore
 its already-applied view immediately and tell the server where to resume.
 
+The browser-side `events` and `cursors` stores intentionally model two different
+ideas:
+
+```text
+events   = local replay/projection data for the UI
+cursors  = resume checkpoint for the next server request
+```
+
+In this maze demo, `events` can redraw the maze after reload, while `cursors`
+answers the smaller question: "what should the next `?after=` value be?"
+
 The server appends a `buffer_chunks` row and advances `streams.next_seq` in the same
 SQLite transaction. It notifies live tailers only after that transaction commits.
 
@@ -109,6 +120,19 @@ One entry for each event the browser has persisted and applied.
   projection or a lossless local representation appropriate to its source.
 - `storedAt`: Browser-side Unix milliseconds when the transaction committed.
 
+This store is a browser-local projection of the stream. It is useful for UI
+restore: reloads and new tabs can redraw the maze immediately from IndexedDB
+before asking the server for newer chunks.
+
+The demo also uses `events` for time travel. Clicking an event log row redraws
+the maze from all saved events with `seq <= clickedSeq`. This changes only the
+visible projection; the stored cursor and server-side stream keep moving
+forward.
+
+`events` is not the authoritative stream log. The authoritative server-side log
+is SQLite `buffer_chunks`. If this browser deletes `events`, another browser or
+the server still has its own state.
+
 ### `cursors`
 
 One row per stream that this browser has seen.
@@ -118,8 +142,46 @@ One row per stream that this browser has seen.
 - `seq`: Last event written to IndexedDB. This is the `after` value used on the
   next connection.
 
+This store is the browser's checkpoint. It lets the reconnect code do:
+
+```text
+GET /streams/:streamId?after=<cursors.seq>
+```
+
+`cursors` does not contain enough data to redraw the maze. It only says how far
+this browser safely got.
+
 The browser writes `events` and `cursors` in **one read-write transaction**.
 It never advances `cursors.seq` before the corresponding event is durable.
+
+Example after applying three chunks:
+
+```text
+events:
+  ["stream-1", 0] -> { event: { kind: "maze-edge", ... } }
+  ["stream-1", 1] -> { event: { kind: "maze-edge", ... } }
+  ["stream-1", 2] -> { event: { kind: "maze-edge", ... } }
+
+cursors:
+  "stream-1" -> { seq: 2 }
+```
+
+On reload:
+
+1. Read `events` for `stream-1` and redraw chunks `0..2`.
+2. Read `cursors["stream-1"].seq`.
+3. Connect to `/streams/stream-1?after=2`.
+
+Could this demo use only one store? Yes, with tradeoffs:
+
+- Only `events`: derive the cursor from the largest saved `seq`. Simpler for
+  this maze demo, but slower/less flexible once old UI events are compacted or
+  deleted.
+- Only `cursors`: resume still works, but reload cannot redraw the already
+  applied maze because the local event data is gone.
+
+Keeping both stores makes the separation explicit: `events` is local UI history,
+`cursors` is resume progress.
 
 ```js
 const db = await new Promise((resolve, reject) => {
@@ -147,6 +209,10 @@ the durable cursor and it does not replace IndexedDB.
 localStorage.getItem("resumable-stream-observatory:active-stream");
 ```
 
-The **Forget saved maze** button removes this key. It intentionally leaves the
-IndexedDB event cache alone, so reopening the same stream ID later can still
-restore it.
+The **Stop auto-resume** button removes this key and clears the current UI. It
+intentionally leaves the IndexedDB event cache alone, so reopening the same
+stream ID later can still restore it.
+
+The **Delete local cache** button deletes this browser's IndexedDB `events` and
+`cursors` rows for the selected stream. It does not delete the server-side
+SQLite `streams` or `buffer_chunks` rows.

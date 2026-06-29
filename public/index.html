@@ -15,7 +15,9 @@
       #maze-lines { stroke: #79d8a5; stroke-width: .16; stroke-linecap: round; stroke-linejoin: round; fill: none; }
       .edge-live { stroke-dasharray: 1; stroke-dashoffset: 1; animation: carve .36s ease-out forwards; }
       @keyframes carve { to { stroke-dashoffset: 0; } }
-      #events { height: 220px; overflow: auto; white-space: pre-wrap; color: #bed0e9; font-size: 12px; line-height: 1.45; }
+      #events { height: 220px; overflow: auto; color: #bed0e9; font-size: 12px; line-height: 1.45; }
+      .event-entry { display: block; width: 100%; margin: 0; padding: 2px 4px; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; white-space: pre-wrap; }
+      .event-entry:hover, .event-entry.selected { background: #243049; }
       .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; } code { color: #79d8a5; }
     </style>
   </head>
@@ -27,7 +29,8 @@
       <button id="create">Start a fresh maze</button>
       <button id="reconnect">Reconnect saved maze</button>
       <button id="disconnect" class="secondary">Disconnect</button>
-      <button id="forget" class="secondary">Forget saved maze</button>
+      <button id="forget-active" class="secondary">Stop auto-resume</button>
+      <button id="delete-cache" class="secondary">Delete local cache</button>
     </section>
 
     <section>
@@ -44,7 +47,11 @@
     </section>
 
     <section>
-      <strong>Durable browser event log</strong>
+      <div class="row">
+        <strong>Durable browser event log</strong>
+        <button id="live" class="secondary">Back to live</button>
+      </div>
+      <p class="hint">Click an event to redraw the maze at that durable cursor.</p>
       <div id="events"></div>
     </section>
     <script type="module" src="/app.js"></script>

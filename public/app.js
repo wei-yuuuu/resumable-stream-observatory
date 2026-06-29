@@ -3,7 +3,9 @@ const eventsEl = document.querySelector("#events");
 const mazeLines = document.querySelector("#maze-lines");
 let connection;
 let currentId = "";
+let eventLog = [];
 let edges = [];
+let viewedSeq = null;
 const activeStreamKey = "resumable-stream-observatory:active-stream";
 
 const database = await openDatabase();
@@ -16,13 +18,28 @@ document.querySelector("#create").addEventListener("click", async () => {
 });
 document.querySelector("#reconnect").addEventListener("click", () => connect(savedStreamId()));
 document.querySelector("#disconnect").addEventListener("click", () => disconnect("disconnected by user"));
-document.querySelector("#forget").addEventListener("click", () => {
-  disconnect("saved maze forgotten");
+document.querySelector("#live").addEventListener("click", () => showLive());
+document.querySelector("#forget-active").addEventListener("click", () => {
+  disconnect("auto-resume stopped; local cache is still kept");
   localStorage.removeItem(activeStreamKey);
   history.replaceState({}, "", "/");
   currentId = "";
-  edges = [];
-  renderMaze();
+  resetView();
+});
+document.querySelector("#delete-cache").addEventListener("click", async () => {
+  const streamId = currentId || savedStreamId() || new URL(location.href).searchParams.get("stream");
+  if (!streamId) return setStatus("No saved stream selected.");
+  disconnect("deleting local cache");
+  try {
+    await deleteLocalCache(streamId);
+    if (currentId === streamId || savedStreamId() === streamId) localStorage.removeItem(activeStreamKey);
+    history.replaceState({}, "", "/");
+    currentId = "";
+    resetView();
+    setStatus(`Deleted IndexedDB events and cursor for ${streamId}.`);
+  } catch (error) {
+    setStatus(`Failed to delete local cache: ${error.message}`);
+  }
 });
 window.addEventListener("offline", () => disconnect("browser is offline — the producer is still running"));
 window.addEventListener("online", () => {
@@ -42,9 +59,8 @@ async function connect(streamId) {
   rememberStream(streamId);
   const savedEvents = await loadEvents(streamId);
   if (controller.signal.aborted) return;
-  edges = savedEvents.map((entry) => entry.event).filter((event) => event.kind === "maze-edge");
-  eventsEl.textContent = savedEvents.map((entry) => `${String(entry.seq).padStart(3, "0")}  ${JSON.stringify(entry.event)}`).join("\n");
-  renderMaze();
+  eventLog = savedEvents;
+  showLive();
   const cursor = await loadCursor(streamId);
   if (controller.signal.aborted) return;
   setStatus(`Restored ${savedEvents.length} browser events; connecting after durable cursor ${cursor}`);
@@ -92,18 +108,77 @@ async function handleSse(message, streamId) {
   const event = JSON.parse(decoded);
   // The transaction commits both the event and the cursor before UI application.
   await persistEvent(streamId, envelope.seq, event);
-  if (event.kind === "maze-edge") {
+  const entry = { streamId, seq: envelope.seq, event, storedAt: Date.now() };
+  appendEventEntry(entry);
+  if (viewedSeq === null && event.kind === "maze-edge") {
     edges.push(event);
     appendEdge(event, true);
   }
-  eventsEl.textContent += `${String(envelope.seq).padStart(3, "0")}  ${decoded}\n`;
+  renderEventLog();
+  if (viewedSeq === null) eventsEl.scrollTop = eventsEl.scrollHeight;
+  const view = viewedSeq === null ? "live" : `time-travel view at ${viewedSeq}`;
+  setStatus(`Applied durable cursor ${envelope.seq}; ${edges.length} visible passages (${view}).`);
+}
+
+function resetView() {
+  eventLog = [];
+  viewedSeq = null;
+  edges = [];
+  renderMaze();
+  renderEventLog();
+}
+
+function showLive() {
+  viewedSeq = null;
+  edges = mazeEdgesThrough(Infinity);
+  renderMaze();
+  renderEventLog();
   eventsEl.scrollTop = eventsEl.scrollHeight;
-  setStatus(`Applied durable cursor ${envelope.seq}; ${edges.length} durable maze passages.`);
+  const latest = latestSeq();
+  setStatus(latest < 0 ? "Live view; no browser events yet." : `Live view at latest durable cursor ${latest}.`);
+}
+
+function showAt(seq) {
+  viewedSeq = seq;
+  edges = mazeEdgesThrough(seq);
+  renderMaze();
+  renderEventLog();
+  setStatus(`Time travel: showing durable cursor ${seq}; live resume checkpoint is still ${latestSeq()}.`);
 }
 
 function renderMaze() {
   mazeLines.replaceChildren();
   for (const edge of edges) appendEdge(edge, false);
+}
+
+function renderEventLog() {
+  eventsEl.replaceChildren();
+  for (const entry of eventLog) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "event-entry";
+    if (entry.seq === viewedSeq) button.classList.add("selected");
+    button.textContent = `${String(entry.seq).padStart(3, "0")}  ${JSON.stringify(entry.event)}`;
+    button.addEventListener("click", () => showAt(entry.seq));
+    eventsEl.append(button);
+  }
+}
+
+function appendEventEntry(entry) {
+  const index = eventLog.findIndex((item) => item.seq === entry.seq);
+  if (index >= 0) eventLog[index] = entry;
+  else eventLog.push(entry);
+  eventLog.sort((left, right) => left.seq - right.seq);
+}
+
+function mazeEdgesThrough(seq) {
+  return eventLog
+    .filter((entry) => entry.seq <= seq && entry.event.kind === "maze-edge")
+    .map((entry) => entry.event);
+}
+
+function latestSeq() {
+  return eventLog.at(-1)?.seq ?? -1;
 }
 
 function appendEdge(edge, animate) {
@@ -171,5 +246,26 @@ function loadEvents(streamId) {
       cursor.continue();
     };
     request.onerror = () => reject(request.error);
+  });
+}
+
+function deleteLocalCache(streamId) {
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(["events", "cursors"], "readwrite");
+    transaction.objectStore("cursors").delete(streamId);
+
+    const request = transaction.objectStore("events").openCursor(
+      IDBKeyRange.bound([streamId, 0], [streamId, Number.MAX_SAFE_INTEGER]),
+    );
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      cursor.delete();
+      cursor.continue();
+    };
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
   });
 }

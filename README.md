@@ -72,6 +72,11 @@ long-lived buffer service or durable runtime. The included maze server is a
 single-process learning demo, so it intentionally does not provide that
 deployment boundary by itself.
 
+The demo still wires `keepAliveWhile` with a visible heartbeat log so you can
+see when the producer drain starts, stays alive, and releases. That heartbeat
+belongs to the buffer's background producer task, not to a browser tab or SSE
+connection.
+
 If the runtime gives you primitive alarm operations rather than its own
 `keepAliveWhile`, use `createKeepAliveWhile()`. Its lease is released on both
 success and failure, so a completed or failed generation does not leak a

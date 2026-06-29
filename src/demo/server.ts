@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { StreamHub, toSse } from "../index.ts";
+import { createKeepAliveWhile, StreamHub, toSse } from "../index.ts";
 import { createMazeSource } from "./maze-source.ts";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -10,7 +10,27 @@ const publicDir = join(root, "public");
 const dataDir = join(root, "data");
 mkdirSync(dataDir, { recursive: true });
 
-const hub = new StreamHub({ databasePath: join(dataDir, "streams.sqlite") });
+const demoKeepAliveWhile = createKeepAliveWhile({
+  begin() {
+    // Demo-only: local Node does not need a host alarm to survive idle eviction.
+    // This visible lease shows that keepAliveWhile belongs to the producer
+    // drain, not to any browser SSE connection.
+    console.log("[keepAliveWhile] producer drain started");
+    const heartbeat = setInterval(() => {
+      console.log("[keepAliveWhile] producer drain still alive");
+    }, 5_000);
+
+    return () => {
+      clearInterval(heartbeat);
+      console.log("[keepAliveWhile] producer drain released");
+    };
+  },
+});
+
+const hub = new StreamHub({
+  databasePath: join(dataDir, "streams.sqlite"),
+  keepAliveWhile: demoKeepAliveWhile,
+});
 
 const server = createServer(async (req, res) => {
   const requestTarget = req.url ?? "/";
