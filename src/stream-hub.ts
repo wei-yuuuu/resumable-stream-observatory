@@ -94,6 +94,20 @@ export class StreamHub {
     return streams.map(toStreamInfo);
   }
 
+  delete(streamId: string): boolean {
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      this.#db.prepare("DELETE FROM buffer_chunks WHERE stream_id = ?").run(streamId);
+      const deleted = this.#db.prepare("DELETE FROM streams WHERE id = ?").run(streamId);
+      this.#db.exec("COMMIT");
+      if (deleted.changes > 0) this.#notify(streamId);
+      return deleted.changes > 0;
+    } catch (error) {
+      if (this.#db.isTransaction) this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   tailFrom(streamId: string, after: number): ReadableStream<TailEvent> {
     const aborted = new AbortController();
     const pending: TailEvent[] = [];

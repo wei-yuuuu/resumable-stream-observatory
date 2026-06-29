@@ -9,7 +9,8 @@
       body { max-width: 960px; margin: 32px auto; padding: 0 20px; }
       h1 { letter-spacing: -0.06em; } .hint, #status { color: #9eb0c9; }
       section { background: #191f2b; border: 1px solid #2d394d; border-radius: 10px; padding: 16px; margin: 16px 0; }
-      button { font: inherit; padding: 8px; border-radius: 6px; border: 1px solid #41516b; background: #2b6ee9; color: white; cursor: pointer; }
+      button { flex: 0 0 auto; font: inherit; padding: 8px; border-radius: 6px; border: 1px solid #41516b; background: #2b6ee9; color: white; cursor: pointer; white-space: nowrap; }
+      select { flex: 1 1 360px; font: inherit; padding: 8px; border-radius: 6px; border: 1px solid #41516b; background: #10131a; color: #e6edf7; min-width: 260px; }
       button.secondary { background: #293244; } button:disabled { opacity: .55; cursor: not-allowed; }
       #maze { width: 100%; max-width: 800px; aspect-ratio: 24 / 14; background: #080a0f; border-radius: 8px; border: 1px solid #2d394d; display: block; }
       #maze-lines { stroke: #79d8a5; stroke-width: .16; stroke-linecap: round; stroke-linejoin: round; fill: none; }
@@ -18,6 +19,7 @@
       #events { height: 220px; overflow: auto; color: #bed0e9; font-size: 12px; line-height: 1.45; }
       .event-entry { display: block; width: 100%; margin: 0; padding: 2px 4px; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; white-space: pre-wrap; }
       .event-entry:hover, .event-entry.selected { background: #243049; }
+      .toolbar { display: flex; gap: 8px; align-items: center; overflow-x: auto; }
       .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; } code { color: #79d8a5; }
     </style>
   </head>
@@ -25,12 +27,11 @@
     <h1>Resumable Stream Observatory</h1>
     <p class="hint">The active stream is remembered in this browser. Reload, open a new tab, or go offline and return: it resumes from the IndexedDB cursor automatically.</p>
 
-    <section class="row">
+    <section class="toolbar">
       <button id="create">Start a fresh maze</button>
-      <button id="reconnect">Reconnect saved maze</button>
-      <button id="disconnect" class="secondary">Disconnect</button>
-      <button id="forget-active" class="secondary">Stop auto-resume</button>
-      <button id="delete-cache" class="secondary">Delete local cache</button>
+      <select id="stream-select" aria-label="Saved server streams"></select>
+      <button id="disconnect" class="secondary" disabled>Disconnect</button>
+      <button id="delete-stream" class="secondary">Delete stream</button>
     </section>
 
     <section>

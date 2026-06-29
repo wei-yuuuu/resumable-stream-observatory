@@ -199,7 +199,7 @@ const cursor = await new Promise((resolve, reject) => {
 console.log(cursor);
 ```
 
-## Browser localStorage
+## Browser controls and localStorage
 
 `resumable-stream-observatory:active-stream` stores the most recently opened
 stream ID. It is only a convenience for reload/new-tab auto-resume; it is not
@@ -209,10 +209,14 @@ the durable cursor and it does not replace IndexedDB.
 localStorage.getItem("resumable-stream-observatory:active-stream");
 ```
 
-The **Stop auto-resume** button removes this key and clears the current UI. It
-intentionally leaves the IndexedDB event cache alone, so reopening the same
-stream ID later can still restore it.
+The stream dropdown is populated from `GET /streams`, so it shows streams that
+still exist in the server-side SQLite `streams` table.
 
-The **Delete local cache** button deletes this browser's IndexedDB `events` and
-`cursors` rows for the selected stream. It does not delete the server-side
-SQLite `streams` or `buffer_chunks` rows.
+The **Delete stream** button deletes both layers for the selected stream:
+
+1. Browser IndexedDB `events` and `cursors`.
+2. Server-side SQLite `buffer_chunks` plus the `streams` row via
+   `DELETE /streams/:id`.
+
+Other browser profiles may still have their own IndexedDB cache, but they can no
+longer replay the deleted stream from this server buffer.

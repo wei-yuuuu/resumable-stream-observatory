@@ -117,6 +117,7 @@ public/                browser SVG/IndexedDB visualiser
 | `GET` | `/streams` | List stream metadata. |
 | `GET` | `/streams/:id?after=<seq>` | SSE replay followed by live tail. |
 | `GET` | `/streams/:id/status` | Read stream metadata. |
+| `DELETE` | `/streams/:id` | Delete server-side SQLite `buffer_chunks` and stream metadata. |
 
 `GET /streams/:id` emits SSE messages whose `id` is the durable SQLite
 sequence number. The browser demo stores that number in IndexedDB only after

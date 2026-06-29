@@ -57,6 +57,10 @@ const server = createServer(async (req, res) => {
       const stream = hub.get(streamId);
       if (!stream) return json(res, 404, { error: "stream not found" });
       if (match[2] === "/status") return json(res, 200, stream);
+      if (req.method === "DELETE") {
+        hub.delete(streamId);
+        return json(res, 200, { deleted: true, streamId });
+      }
       if (req.method === "GET") return sendSse(req, res, streamId, stream.status, url.searchParams.get("after"));
     }
 

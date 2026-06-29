@@ -1,11 +1,16 @@
 const statusEl = document.querySelector("#status");
 const eventsEl = document.querySelector("#events");
 const mazeLines = document.querySelector("#maze-lines");
+const streamSelectEl = document.querySelector("#stream-select");
+const connectionButtonEl = document.querySelector("#disconnect");
 let connection;
 let currentId = "";
 let eventLog = [];
 let edges = [];
 let viewedSeq = null;
+let streamOptionsRefresh;
+let streamOptionsById = new Map();
+let viewVersion = 0;
 const activeStreamKey = "resumable-stream-observatory:active-stream";
 
 const database = await openDatabase();
@@ -14,31 +19,34 @@ document.querySelector("#create").addEventListener("click", async () => {
   const response = await fetch("/streams", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ count: 335, intervalMs: 80 }) });
   const stream = await response.json();
   rememberStream(stream.id);
+  await refreshStreamOptions(stream.id);
   await connect(stream.id);
 });
-document.querySelector("#reconnect").addEventListener("click", () => connect(savedStreamId()));
-document.querySelector("#disconnect").addEventListener("click", () => disconnect("disconnected by user"));
-document.querySelector("#live").addEventListener("click", () => showLive());
-document.querySelector("#forget-active").addEventListener("click", () => {
-  disconnect("auto-resume stopped; local cache is still kept");
-  localStorage.removeItem(activeStreamKey);
-  history.replaceState({}, "", "/");
-  currentId = "";
-  resetView();
+streamSelectEl.addEventListener("focus", () => void refreshStreamOptions(selectedStreamId()));
+streamSelectEl.addEventListener("click", () => void refreshStreamOptions(selectedStreamId()));
+streamSelectEl.addEventListener("change", () => connect(streamSelectEl.value));
+connectionButtonEl.addEventListener("click", () => {
+  if (connection) disconnect("disconnected by user");
+  else void connect(selectedStreamId());
 });
-document.querySelector("#delete-cache").addEventListener("click", async () => {
-  const streamId = currentId || savedStreamId() || new URL(location.href).searchParams.get("stream");
-  if (!streamId) return setStatus("No saved stream selected.");
-  disconnect("deleting local cache");
+document.querySelector("#live").addEventListener("click", () => showLive());
+document.querySelector("#delete-stream").addEventListener("click", async () => {
+  const streamId = selectedStreamId();
+  if (!streamId) return setStatus("No stream selected.");
+  if (currentId === streamId) disconnect("deleting stream");
   try {
     await deleteLocalCache(streamId);
-    if (currentId === streamId || savedStreamId() === streamId) localStorage.removeItem(activeStreamKey);
-    history.replaceState({}, "", "/");
-    currentId = "";
-    resetView();
-    setStatus(`Deleted IndexedDB events and cursor for ${streamId}.`);
+    await deleteServerBuffer(streamId);
+    if (currentId === streamId) {
+      currentId = "";
+      resetView();
+    }
+    if (savedStreamId() === streamId) localStorage.removeItem(activeStreamKey);
+    if (new URL(location.href).searchParams.get("stream") === streamId) history.replaceState({}, "", "/");
+    await refreshStreamOptions();
+    setStatus(`Deleted IndexedDB cache and server SQLite buffer for ${streamId}.`);
   } catch (error) {
-    setStatus(`Failed to delete local cache: ${error.message}`);
+    setStatus(`Failed to delete stream: ${error.message}`);
   }
 });
 window.addEventListener("offline", () => disconnect("browser is offline — the producer is still running"));
@@ -48,21 +56,36 @@ window.addEventListener("online", () => {
 });
 
 const initialStreamId = new URL(location.href).searchParams.get("stream") || savedStreamId();
+await refreshStreamOptions(initialStreamId);
+updateConnectionButton();
 if (initialStreamId) void connect(initialStreamId);
 
 async function connect(streamId) {
   if (!streamId) return setStatus("Start a fresh maze first.");
-  disconnect("switching connection");
-  const controller = new AbortController();
-  connection = controller;
+  const version = viewVersion + 1;
+  viewVersion = version;
+  connection?.abort();
+  connection = undefined;
   currentId = streamId;
   rememberStream(streamId);
+  selectStream(streamId);
+  updateConnectionButton();
   const savedEvents = await loadEvents(streamId);
-  if (controller.signal.aborted) return;
+  if (version !== viewVersion) return;
   eventLog = savedEvents;
   showLive();
   const cursor = await loadCursor(streamId);
-  if (controller.signal.aborted) return;
+  if (version !== viewVersion) return;
+
+  const stream = streamOptionsById.get(streamId);
+  if (stream && stream.status !== "streaming") {
+    updateConnectionButton();
+    return setStatus(`Opened ${stream.status} stream from IndexedDB cache at durable cursor ${cursor}.`);
+  }
+
+  const controller = new AbortController();
+  connection = controller;
+  updateConnectionButton();
   setStatus(`Restored ${savedEvents.length} browser events; connecting after durable cursor ${cursor}`);
 
   try {
@@ -72,13 +95,37 @@ async function connect(streamId) {
     await consumeSse(response.body, streamId, controller.signal);
   } catch (error) {
     if (!controller.signal.aborted) setStatus(`Connection ended: ${error.message}`);
+  } finally {
+    if (connection === controller) {
+      connection = undefined;
+      updateConnectionButton();
+    }
   }
 }
 
 function disconnect(reason) {
+  viewVersion += 1;
   connection?.abort();
   connection = undefined;
+  updateConnectionButton();
   if (reason) setStatus(reason);
+}
+
+function updateConnectionButton() {
+  if (connection) {
+    connectionButtonEl.textContent = "Disconnect";
+    connectionButtonEl.disabled = false;
+    return;
+  }
+
+  const stream = streamOptionsById.get(selectedStreamId());
+  if (!stream) {
+    connectionButtonEl.textContent = "Disconnect";
+    connectionButtonEl.disabled = true;
+    return;
+  }
+  connectionButtonEl.textContent = stream.status === "streaming" ? "Reconnect" : "Disconnect";
+  connectionButtonEl.disabled = stream.status !== "streaming";
 }
 
 async function consumeSse(body, streamId, signal) {
@@ -100,7 +147,12 @@ async function handleSse(message, streamId) {
     const separator = line.indexOf(":");
     return separator < 0 ? [line, ""] : [line.slice(0, separator), line.slice(separator + 1).trimStart()];
   }));
-  if (fields.event === "end") return setStatus(`Stream ended: ${fields.data}`);
+  if (fields.event === "end") {
+    const end = JSON.parse(fields.data);
+    setStreamStatus(streamId, end.status);
+    updateConnectionButton();
+    return setStatus(`Stream ended: ${fields.data}`);
+  }
   if (fields.event !== "chunk") return;
 
   const envelope = JSON.parse(fields.data);
@@ -198,6 +250,67 @@ function rememberStream(streamId) {
   history.replaceState({}, "", `/?stream=${encodeURIComponent(streamId)}`);
 }
 
+function selectedStreamId() {
+  return streamSelectEl.value || currentId || savedStreamId() || new URL(location.href).searchParams.get("stream") || "";
+}
+
+function selectStream(streamId) {
+  if (!streamId) return;
+  if ([...streamSelectEl.options].some((option) => option.value === streamId)) {
+    streamSelectEl.value = streamId;
+  }
+}
+
+async function refreshStreamOptions(preferredStreamId = selectedStreamId()) {
+  if (streamOptionsRefresh) return streamOptionsRefresh;
+  streamOptionsRefresh = loadStreamOptions(preferredStreamId);
+  try {
+    await streamOptionsRefresh;
+  } finally {
+    streamOptionsRefresh = undefined;
+  }
+}
+
+async function loadStreamOptions(preferredStreamId) {
+  try {
+    const response = await fetch("/streams");
+    if (!response.ok) throw new Error(await response.text());
+    const streams = await response.json();
+    streamOptionsById = new Map(streams.map((stream) => [stream.id, stream]));
+    streamSelectEl.replaceChildren();
+
+    if (streams.length === 0) {
+      streamSelectEl.append(new Option("No server streams", ""));
+      updateConnectionButton();
+      return;
+    }
+
+    for (const stream of streams) {
+      streamSelectEl.append(new Option(formatStreamOption(stream), stream.id));
+    }
+    selectStream(preferredStreamId);
+    updateConnectionButton();
+  } catch (error) {
+    streamOptionsById = new Map();
+    streamSelectEl.replaceChildren(new Option("Failed to load streams", ""));
+    updateConnectionButton();
+    setStatus(`Failed to load server streams: ${error.message}`);
+  }
+}
+
+function setStreamStatus(streamId, status) {
+  const stream = streamOptionsById.get(streamId);
+  if (!stream) return;
+  stream.status = status;
+  for (const option of streamSelectEl.options) {
+    if (option.value === streamId) option.textContent = formatStreamOption(stream);
+  }
+}
+
+function formatStreamOption(stream) {
+  return `${stream.id} · ${stream.status} · next ${stream.nextSeq}`;
+}
+
 function base64Bytes(text) {
   const binary = atob(text);
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
@@ -268,4 +381,9 @@ function deleteLocalCache(streamId) {
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error);
   });
+}
+
+async function deleteServerBuffer(streamId) {
+  const response = await fetch(`/streams/${encodeURIComponent(streamId)}`, { method: "DELETE" });
+  if (!response.ok) throw new Error(await response.text());
 }
