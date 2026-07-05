@@ -74,13 +74,19 @@ caller can replay the partial bytes and let the higher-level agent or workflow
 decide how to recover. This is the same log used for browser reconnection; the
 only difference is whether a live producer remains attached.
 
-## First visual use case
+## Demo use cases
 
 The provider is initially a fake perfect-maze generator. Each durable chunk is
 a JSON passage between two maze-cell centres. The browser draws it as an SVG
 path with `stroke-dasharray`; on reload it rebuilds all saved passages from
 IndexedDB, then animates only newly tailed ones. The active stream ID is saved
 in `localStorage`, so a reload or a new tab resumes without copying an ID.
+
+The practical demo is long-running document search. The `scan` backend walks a
+demo corpus one document at a time and streams progress/results. The `fts5`
+backend uses SQLite FTS5, SQLite's built-in inverted index, to show the
+difference between a slow resumable scan and an indexed search whose result
+hydration can still be streamed.
 
 To connect a real provider, replace the demo's `createMazeSource()` with a
 source factory that gets a stream from `fetch`:

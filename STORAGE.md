@@ -5,7 +5,9 @@ The demo deliberately has two durable stores:
 ```text
 SQLite (server)                  IndexedDB (one browser profile)
 streams + buffer_chunks          events + cursors
-source of replay truth           local cache / durable client cursor
+documents + documents_fts        local cache / durable client cursor
+demo_streams                     demo-only stream labels and grouping
+source of replay truth           UI projection + checkpoint
 ```
 
 SQLite is the authoritative server-side log. IndexedDB lets one browser restore
@@ -103,6 +105,89 @@ sqlite3 -header -column data/streams.sqlite "
 Do not use `CAST(data AS TEXT)` for a general stream source: binary data may be
 invalid text. For normal inspection, prefer `length(data)` and metadata.
 
+## SQLite: `documents`
+
+Demo document corpus used by the long-running search example. These rows are
+not stream chunks; they are the source data that a search stream scans or
+queries.
+
+```sh
+sqlite3 -header -column data/streams.sqlite "
+  SELECT public_id, title
+  FROM documents
+  ORDER BY rowid ASC
+  LIMIT 10;
+"
+```
+
+Columns:
+
+- `rowid`: Integer primary key. SQLite FTS5 uses this as its content row ID.
+- `public_id`: Stable demo document ID shown in search events.
+- `title`: Searchable title.
+- `body`: Searchable body text.
+- `created_at`: Unix milliseconds when the demo corpus was seeded.
+
+## SQLite: `documents_fts`
+
+SQLite FTS5 virtual table for indexed document search. This is SQLite's
+built-in inverted index, not a hand-written index in application code.
+
+```sh
+sqlite3 -header -column data/streams.sqlite "
+  SELECT d.public_id, d.title
+  FROM documents_fts
+  JOIN documents d ON d.rowid = documents_fts.rowid
+  WHERE documents_fts MATCH 'sqlite'
+  LIMIT 10;
+"
+```
+
+The important parts of the FTS query are:
+
+- `CREATE VIRTUAL TABLE ... USING fts5(...)`: creates a special table backed by
+  SQLite's full-text index. You query it like a table, but internally SQLite
+  stores token → matching row mappings.
+- `content='documents'`: tells FTS5 that `documents` is the canonical content
+  table. The FTS table is the searchable index, not the app's main record.
+- `content_rowid='rowid'`: makes `documents_fts.rowid` point at
+  `documents.rowid`, so a search hit can be joined back to the full document.
+- `WHERE documents_fts MATCH 'sqlite'`: asks the FTS index for rows containing
+  the query terms. This avoids checking every document body one by one.
+- `snippet(documents_fts, 1, '', '', '…', 14)`: asks FTS5 for a short matching
+  fragment. Column `1` means the `body` column because the FTS table columns
+  are `title` then `body`.
+- `bm25(documents_fts)`: asks FTS5 for a relevance score. In SQLite FTS5, lower
+  scores are better, so the demo sorts ascending.
+
+The search demo has two backends:
+
+- `scan`: Reads `documents` one row at a time and emits progress/results.
+- `fts5`: Uses `documents_fts MATCH ?` to get indexed candidates quickly, then
+  streams result events.
+
+## SQLite: `demo_streams`
+
+Demo-only metadata used by the browser UI to keep Maze streams and Search
+streams in separate dropdowns. This table is not part of the core `StreamHub`
+library contract.
+
+```sh
+sqlite3 -header -column data/streams.sqlite "
+  SELECT stream_id, demo_type, label,
+         datetime(created_at / 1000, 'unixepoch', 'localtime') AS created_at
+  FROM demo_streams
+  ORDER BY created_at DESC;
+"
+```
+
+Columns:
+
+- `stream_id`: Parent `streams.id`.
+- `demo_type`: `maze` or `search`.
+- `label`: User-facing dropdown label, such as a search query/backend.
+- `created_at`: Unix milliseconds when the demo metadata was recorded.
+
 ## Browser IndexedDB: `resumable-stream-observatory`
 
 The demo opens IndexedDB database `resumable-stream-observatory`, version `1`.
@@ -116,8 +201,10 @@ One entry for each event the browser has persisted and applied.
 - Key path: `[streamId, seq]`.
 - `streamId`: Server stream UUID.
 - `seq`: Server chunk sequence number.
-- `event`: Decoded maze JSON for the demo. A real app would store its decoded
-  projection or a lossless local representation appropriate to its source.
+- `event`: Decoded demo JSON. Maze streams store `maze-edge` events; search
+  streams store `search-started`, `progress`, `result`, and `summary` events.
+  A real app would store its decoded projection or a lossless local
+  representation appropriate to its source.
 - `storedAt`: Browser-side Unix milliseconds when the transaction committed.
 
 This store is a browser-local projection of the stream. It is useful for UI

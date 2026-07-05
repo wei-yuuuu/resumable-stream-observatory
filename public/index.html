@@ -16,10 +16,24 @@
       #maze-lines { stroke: #79d8a5; stroke-width: .16; stroke-linecap: round; stroke-linejoin: round; fill: none; }
       .edge-live { stroke-dasharray: 1; stroke-dashoffset: 1; animation: carve .36s ease-out forwards; }
       @keyframes carve { to { stroke-dashoffset: 0; } }
+      input { flex: 1 1 260px; font: inherit; padding: 8px; border-radius: 6px; border: 1px solid #41516b; background: #10131a; color: #e6edf7; }
+      .choice { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+      .choice input { flex: 0 0 auto; }
+      .meter { width: 100%; height: 10px; overflow: hidden; border-radius: 999px; background: #10131a; border: 1px solid #2d394d; }
+      #search-bar { width: 0; height: 100%; background: #79d8a5; transition: width .16s ease-out; }
+      #search-results { display: grid; gap: 8px; max-height: 320px; margin-top: 12px; overflow: auto; padding-right: 4px; }
+      .result-card { padding: 10px; border: 1px solid #2d394d; border-radius: 8px; background: #10131a; }
+      .result-card strong { color: #e6edf7; }
+      .result-card p { margin: 6px 0 0; color: #9eb0c9; }
       #events { height: 220px; overflow: auto; color: #bed0e9; font-size: 12px; line-height: 1.45; }
       .event-entry { display: block; width: 100%; margin: 0; padding: 2px 4px; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; white-space: pre-wrap; }
       .event-entry:hover, .event-entry.selected { background: #243049; }
+      .tabs { display: flex; gap: 8px; margin-top: 16px; }
+      .tab { background: #293244; }
+      .tab.active { background: #2b6ee9; }
+      .demo-panel[hidden] { display: none; }
       .toolbar { display: flex; gap: 8px; align-items: center; overflow-x: auto; }
+      .stack { display: grid; gap: 12px; }
       .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; } code { color: #79d8a5; }
     </style>
   </head>
@@ -27,24 +41,53 @@
     <h1>Resumable Stream Observatory</h1>
     <p class="hint">The active stream is remembered in this browser. Reload, open a new tab, or go offline and return: it resumes from the IndexedDB cursor automatically.</p>
 
-    <section class="toolbar">
-      <button id="create">Start a fresh maze</button>
-      <select id="stream-select" aria-label="Saved server streams"></select>
-      <button id="disconnect" class="secondary" disabled>Disconnect</button>
-      <button id="delete-stream" class="secondary">Delete stream</button>
+    <section>
+      <div id="status">No stream connected.</div>
+      <div class="tabs" role="tablist" aria-label="Demo projection">
+        <button id="tab-maze" class="tab active" type="button">Maze visualizer</button>
+        <button id="tab-search" class="tab" type="button">Document search</button>
+      </div>
     </section>
 
     <section>
-      <div id="status">No stream connected.</div>
-      <svg id="maze" viewBox="0 0 24 14" role="img" aria-label="A maze assembled from durable stream events">
-        <defs>
-          <pattern id="grid" width="1" height="1" patternUnits="userSpaceOnUse">
-            <path d="M 1 0 L 0 0 0 1" fill="none" stroke="#1a2433" stroke-width=".025" />
-          </pattern>
-        </defs>
-        <rect width="24" height="14" fill="url(#grid)" />
-        <g id="maze-lines"></g>
-      </svg>
+      <div id="maze-panel" class="demo-panel">
+        <div class="toolbar">
+          <button id="create">Start a fresh maze</button>
+          <select id="maze-stream-select" aria-label="Saved maze streams"></select>
+          <button id="maze-connection" class="secondary" disabled>Disconnect</button>
+          <button id="maze-delete" class="secondary">Delete maze stream</button>
+        </div>
+        <p class="hint">Visual demo: stream maze passages, then replay/time-travel the drawing from IndexedDB.</p>
+        <svg id="maze" viewBox="0 0 24 14" role="img" aria-label="A maze assembled from durable stream events">
+          <defs>
+            <pattern id="grid" width="1" height="1" patternUnits="userSpaceOnUse">
+              <path d="M 1 0 L 0 0 0 1" fill="none" stroke="#1a2433" stroke-width=".025" />
+            </pattern>
+          </defs>
+          <rect width="24" height="14" fill="url(#grid)" />
+          <g id="maze-lines"></g>
+        </svg>
+      </div>
+
+      <div id="search-panel" class="demo-panel stack" hidden>
+        <div class="row">
+          <input id="search-query" placeholder="Search documents, e.g. sqlite" aria-label="Search query" />
+          <label class="choice"><input type="radio" name="backend" value="scan" checked /> Slow scan</label>
+          <label class="choice"><input type="radio" name="backend" value="fts5" /> SQLite FTS5</label>
+          <button id="start-search">Start search</button>
+        </div>
+        <div class="toolbar">
+          <select id="search-stream-select" aria-label="Saved search streams"></select>
+          <button id="search-connection" class="secondary" disabled>Disconnect</button>
+          <button id="search-delete" class="secondary">Delete search stream</button>
+        </div>
+        <p class="hint">Slow scan streams progress over time. SQLite FTS5 uses an inverted index, then streams hydrated results.</p>
+
+        <strong>Search projection</strong>
+        <p id="search-status" class="hint">Start or select a search stream.</p>
+        <div class="meter" aria-hidden="true"><div id="search-bar"></div></div>
+        <div id="search-results"></div>
+      </div>
     </section>
 
     <section>
@@ -52,7 +95,7 @@
         <strong>Durable browser event log</strong>
         <button id="live" class="secondary">Back to live</button>
       </div>
-      <p class="hint">Click an event to redraw the maze at that durable cursor.</p>
+      <p class="hint">Click an event to time-travel the active projection.</p>
       <div id="events"></div>
     </section>
     <script type="module" src="/app.js"></script>

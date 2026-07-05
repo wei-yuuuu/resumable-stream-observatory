@@ -1,16 +1,21 @@
 # Resumable Stream Observatory
 
 A no-dependency Node 24.16 + TypeScript library experiment in durable stream
-replay. The repository includes a maze visualiser, but the maze is only a demo
-source; the library accepts any Web `ReadableStream<Uint8Array>`.
+replay. The repository includes a maze visualiser and a practical long-running
+document search demo; both feed the same stream buffer.
 
 ```sh
 npm run dev
 ```
 
-Open <http://127.0.0.1:8787>. Start a maze, then reload or open a new tab. The
-browser remembers the active stream ID and its IndexedDB cursor. Disconnect or
-go offline, let the producer continue, and reconnect without copying anything.
+Open <http://127.0.0.1:8787>. Start a maze or document search, then reload or
+open a new tab. The browser remembers the active stream ID and its IndexedDB
+cursor. Disconnect or go offline, let the producer continue, and reconnect
+without copying anything.
+
+The UI keeps the two demos separated: Maze streams and Search streams have
+their own tabs, controls, and dropdowns, while sharing the same underlying
+`StreamHub` replay mechanism.
 
 Read [PLAN.md](./PLAN.md) for the architecture and the important distinction
 between keeping a provider drain alive and replaying a durable stream. See
@@ -105,8 +110,9 @@ src/
   sse.ts               optional SSE transport adapter
   demo/
     maze-source.ts     replaceable StreamSource implementation
+    search-source.ts   slow scan + SQLite FTS5 search StreamSource
     server.ts          HTTP + static-file demo adapter
-public/                browser SVG/IndexedDB visualiser
+public/                browser SVG/search/IndexedDB visualiser
 ```
 
 ## HTTP surface
@@ -114,7 +120,9 @@ public/                browser SVG/IndexedDB visualiser
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `POST` | `/streams` | Create a stream and start its background producer. |
-| `GET` | `/streams` | List stream metadata. |
+| `POST` | `/search-streams` | Create a document search stream with `scan` or `fts5` backend. |
+| `GET` | `/streams` | List recent stream metadata. |
+| `GET` | `/streams?demoType=maze\|search` | List recent streams for one demo dropdown. |
 | `GET` | `/streams/:id?after=<seq>` | SSE replay followed by live tail. |
 | `GET` | `/streams/:id/status` | Read stream metadata. |
 | `DELETE` | `/streams/:id` | Delete server-side SQLite `buffer_chunks` and stream metadata. |
