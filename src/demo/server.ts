@@ -56,13 +56,13 @@ const server = createServer(async (req, res) => {
       if (url.searchParams.has("demoType") && !demoType) return json(res, 400, { error: "demoType must be maze or search" });
       return json(res, 200, listDemoStreams(demoType));
     }
-    if (req.method === "POST" && url.pathname === "/streams") {
+    if (req.method === "POST" && url.pathname === "/streams/maze") {
       const options = await readJson<{ count?: number; intervalMs?: number }>(req);
       const stream = hub.create({ source: createMazeSource(options) });
       recordDemoStream(stream.id, "maze", `Maze ${new Date(stream.createdAt).toLocaleTimeString()}`);
       return json(res, 201, stream);
     }
-    if (req.method === "POST" && url.pathname === "/search-streams") {
+    if (req.method === "POST" && url.pathname === "/streams/search") {
       const options = await readJson<{ query?: string; backend?: SearchBackend; scanDelayMs?: number }>(req);
       const stream = hub.create({ source: createSearchSource(searchDb, options) });
       const backend = options.backend === "fts5" ? "fts5" : "scan";

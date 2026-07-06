@@ -28,18 +28,23 @@ TCP connection across a hub process restart or redeploy.
 ## The shape
 
 ```text
-client A ─┐
-          ├─ GET /streams/:id?after=42 ─┐
-client B ─┘                              │
-                                         ▼
-                              StreamBuffer(streamId)
-                              - status / producer lease
-                              - SQLite buffer_chunks(seq, bytes)
-                              - tailFrom(streamId, cursor)
-                              - notifications
-                                         ▲
-                                         │ background drain
-                                   provider fetch stream
+POST /streams/search ─┐
+                      ├─ creates stream row + producer lease
+POST /streams/maze ───┘
+        │
+        ▼
+StreamBuffer(streamId) ◀──────── provider fetch stream
+- status / producer lease              ▲
+- SQLite buffer_chunks(seq, bytes)     │ background drain
+- tailFrom(streamId, cursor)           │ keepAliveWhile
+- notifications                        │
+        ▲
+        │ replay committed rows, then wait for more
+        │
+GET /streams/:id?after=42
+        ▲
+        ├── client A
+        └── client B
 ```
 
 `StreamBuffer` is an in-process learning stand-in for the article's
@@ -50,14 +55,17 @@ that owns it has been killed.
 
 ## Rules of the protocol
 
-1. `hub.create({ source })` creates a stable `streamId`, marks it `streaming`,
-   acquires a producer lease, and invokes the source factory in a background
-   task without awaiting it.
+1. A trigger call (`hub.create({ source })`, or demo `POST /streams/maze` /
+   `POST /streams/search`)
+   creates a stable `streamId`, marks it `streaming`, acquires a producer
+   lease, and invokes the source factory in a background task without awaiting
+   it.
 2. Every provider chunk is appended as raw bytes to
    `buffer_chunks(stream_id, seq)`.
    Only **after** SQLite accepts it are tailers notified.
-3. A client reconnects with `GET /streams/:id?after=<cursor>`. The server
-   replays every `seq > cursor`, then tails new rows.
+3. A consumer connects with `GET /streams/:id?after=<cursor>`. The server
+   replays every `seq > cursor`, then tails new rows. This read endpoint never
+   starts a provider request.
 4. The browser writes an event and its cursor to IndexedDB before considering
    the event applied. It sends that durable cursor next time.
 5. `tailFrom()` is consumer-driven: its `pull()` reads SQLite in bounded
@@ -67,6 +75,11 @@ that owns it has been killed.
    races are harmless.
 6. Terminal stream states are `completed`, `failed`, and `interrupted`.
    `tailFrom()` sends a final SSE `end` event once all rows are replayed.
+
+The API intentionally does not write separate metadata events into
+`buffer_chunks`. Stream lifecycle metadata lives in `streams`; the buffer log is
+only provider bytes. The transport adapter produces the terminal `end` event
+from `streams.status` after replay catches up.
 
 On hub startup, any persisted `streaming` row is changed to `interrupted`: its
 previous process is gone, so its provider connection cannot still be live. A

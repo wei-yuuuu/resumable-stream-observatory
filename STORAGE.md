@@ -13,6 +13,32 @@ source of replay truth           UI projection + checkpoint
 SQLite is the authoritative server-side log. IndexedDB lets one browser restore
 its already-applied view immediately and tell the server where to resume.
 
+## Retention and cleanup
+
+This demo has no automatic retention policy yet, so cleanup is explicit:
+
+| Data | Role | Safe cleanup rule |
+| --- | --- | --- |
+| SQLite `buffer_chunks` | Authoritative replay bytes for one stream. | Delete only when the stream no longer needs to be replayed or resumed. |
+| SQLite `streams` | Stream lifecycle metadata and producer lease. | Delete together with that stream's `buffer_chunks`. |
+| SQLite `demo_streams` | Demo-only dropdown labels/grouping. | Delete together with the matching `streams` row. |
+| SQLite `documents` | Demo search corpus, not stream state. | Keep while using the search demo; delete only for a full demo reset. |
+| SQLite `documents_fts` | Rebuildable FTS index over `documents`. | Can be rebuilt from `documents`; do not treat it as canonical data. |
+| IndexedDB `events` | Browser-local UI projection/history. | Safe to delete if you are willing to redraw by replaying from the server. |
+| IndexedDB `cursors` | Browser-local resume checkpoint. | Delete when you want that browser to replay from the start. |
+| `localStorage` active stream ID | Reload/new-tab convenience pointer. | Safe to delete; it does not contain durable stream progress. |
+
+The demo's **Delete stream** button performs the per-stream cleanup path:
+
+1. Delete browser IndexedDB `events` and `cursors` for the selected stream.
+2. Call `DELETE /streams/:id`.
+3. The server deletes SQLite `buffer_chunks`, `streams`, and `demo_streams`
+   rows for that stream.
+
+For a full local reset, stop the server and delete `data/streams.sqlite` plus
+its `-wal` and `-shm` sidecar files. That removes stream buffers, stream
+metadata, demo labels, the search corpus, and the FTS index.
+
 The browser-side `events` and `cursors` stores intentionally model two different
 ideas:
 
@@ -301,11 +327,5 @@ localStorage.getItem("resumable-stream-observatory:active-stream");
 The stream dropdown is populated from `GET /streams`, so it shows streams that
 still exist in the server-side SQLite `streams` table.
 
-The **Delete stream** button deletes both layers for the selected stream:
-
-1. Browser IndexedDB `events` and `cursors`.
-2. Server-side SQLite `buffer_chunks` plus the `streams` row via
-   `DELETE /streams/:id`.
-
-Other browser profiles may still have their own IndexedDB cache, but they can no
-longer replay the deleted stream from this server buffer.
+Other browser profiles may still have their own IndexedDB cache after a stream
+is deleted, but they can no longer replay that stream from this server buffer.

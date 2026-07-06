@@ -54,6 +54,44 @@ stream, avoiding a custom parser for each provider SSE format. `toSse()` is a
 separate application-envelope adapter; a user can also adapt typed events to a
 WebSocket, a CLI renderer, or another transport.
 
+### Stream lifecycle
+
+The HTTP demo keeps the write side and read side separate without splitting the
+stream identity:
+
+```text
+1. Trigger a producer
+   POST /streams/maze
+   POST /streams/search
+
+2. Persist provider bytes
+   StreamHub writes buffer_chunks(stream_id, seq, data)
+
+3. Consume from a durable cursor
+   GET /streams/:id?after=<seq>
+
+4. Reconnect later
+   Browser reads IndexedDB cursor and asks for seq > cursor
+```
+
+The typed create endpoints return as soon as the stream row exists and the
+producer drain has been scheduled. The read endpoint never starts a provider
+request; it only replays durable chunks and waits for new committed rows. This
+keeps a browser tab, reload, or SSE connection from owning the provider
+connection.
+
+The core library exposes the same split:
+
+```ts
+const stream = hub.create({ source });     // trigger producer
+const events = hub.tailFrom(stream.id, 7); // consume after durable cursor 7
+```
+
+There is no extra metadata event in the buffer today. Stream metadata lives in
+`streams`, and consumers receive one terminal `end` event after all chunks have
+been replayed. The transport adapter synthesizes that `end` event from stream
+metadata, which keeps `buffer_chunks` focused on provider bytes.
+
 ### Runtime lifecycle
 
 The default is suitable for a long-lived Node process: it starts the producer
@@ -119,14 +157,14 @@ public/                browser SVG/search/IndexedDB visualiser
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `POST` | `/streams` | Create a stream and start its background producer. |
-| `POST` | `/search-streams` | Create a document search stream with `scan` or `fts5` backend. |
+| `POST` | `/streams/maze` | Create a maze stream and start its background producer. |
+| `POST` | `/streams/search` | Create a document search stream with `scan` or `fts5` backend. |
 | `GET` | `/streams` | List recent stream metadata. |
 | `GET` | `/streams?demoType=maze\|search` | List recent streams for one demo dropdown. |
-| `GET` | `/streams/:id?after=<seq>` | SSE replay followed by live tail. |
+| `GET` | `/streams/:id?after=<seq>` | SSE replay followed by live tail from a durable cursor. |
 | `GET` | `/streams/:id/status` | Read stream metadata. |
 | `DELETE` | `/streams/:id` | Delete server-side SQLite `buffer_chunks` and stream metadata. |
 
-`GET /streams/:id` emits SSE messages whose `id` is the durable SQLite
-sequence number. The browser demo stores that number in IndexedDB only after
-the associated event is persisted.
+`GET /streams/:id` emits SSE messages whose `id` is the durable SQLite sequence
+number. The browser demo stores that number in IndexedDB only after the
+associated event is persisted.

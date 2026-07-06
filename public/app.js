@@ -36,7 +36,7 @@ const database = await openDatabase();
 
 document.querySelector("#create").addEventListener("click", async () => {
   setActiveDemo("maze");
-  const response = await fetch("/streams", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ count: 335, intervalMs: 80 }) });
+  const response = await fetch("/streams/maze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ count: 335, intervalMs: 80 }) });
   const stream = await response.json();
   rememberStream(stream.id);
   await refreshStreamOptions(stream.id);
@@ -44,7 +44,7 @@ document.querySelector("#create").addEventListener("click", async () => {
 });
 document.querySelector("#start-search").addEventListener("click", async () => {
   setActiveDemo("search");
-  const response = await fetch("/search-streams", {
+  const response = await fetch("/streams/search", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ query: searchQueryEl.value, backend: selectedSearchBackend() }),
