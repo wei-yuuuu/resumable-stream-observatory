@@ -300,11 +300,32 @@ function renderSearchProjection() {
     const card = document.createElement("article");
     card.className = "result-card";
     const title = document.createElement("strong");
-    title.textContent = result.title;
+    appendHighlightedText(title, result.title, state.query);
     const snippet = document.createElement("p");
-    snippet.textContent = result.snippet;
+    appendHighlightedText(snippet, result.snippet, state.query);
     card.append(title, snippet);
     searchResultsEl.append(card);
+  }
+}
+
+function appendHighlightedText(parent, text, query) {
+  const terms = queryTerms(query);
+  if (terms.length === 0) {
+    parent.textContent = text;
+    return;
+  }
+
+  // RegExp.escape keeps user-entered search terms literal instead of treating them as regex syntax.
+  const pattern = new RegExp(`(${terms.map(RegExp.escape).join("|")})`, "gi");
+  for (const part of text.split(pattern)) {
+    if (part.length === 0) continue;
+    if (terms.some((term) => part.toLocaleLowerCase() === term)) {
+      const mark = document.createElement("mark");
+      mark.textContent = part;
+      parent.append(mark);
+    } else {
+      parent.append(document.createTextNode(part));
+    }
   }
 }
 
@@ -364,6 +385,11 @@ function setStatus(message) { statusEl.textContent = message; }
 
 function selectedSearchBackend() {
   return document.querySelector("input[name='backend']:checked").value;
+}
+
+function queryTerms(query) {
+  return [...new Set(query.toLocaleLowerCase().split(/\s+/).filter(Boolean))]
+    .sort((left, right) => right.length - left.length);
 }
 
 function savedStreamId() { return localStorage.getItem(activeStreamKey) ?? ""; }

@@ -25,6 +25,7 @@
       .result-card { padding: 10px; border: 1px solid #2d394d; border-radius: 8px; background: #10131a; }
       .result-card strong { color: #e6edf7; }
       .result-card p { margin: 6px 0 0; color: #9eb0c9; }
+      mark { border-radius: 3px; background: #f4d35e; color: #10131a; padding: 0 2px; }
       #events { height: 220px; overflow: auto; color: #bed0e9; font-size: 12px; line-height: 1.45; }
       .event-entry { display: block; width: 100%; margin: 0; padding: 2px 4px; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; white-space: pre-wrap; }
       .event-entry:hover, .event-entry.selected { background: #243049; }
@@ -81,7 +82,7 @@
           <button id="search-connection" class="secondary" disabled>Disconnect</button>
           <button id="search-delete" class="secondary">Delete search stream</button>
         </div>
-        <p class="hint">Slow scan streams progress over time. SQLite FTS5 uses an inverted index, then streams hydrated results.</p>
+        <p class="hint">Slow scan streams progress over time. SQLite FTS5 uses an inverted index for token search; it is not typo-fuzzy search.</p>
 
         <strong>Search projection</strong>
         <p id="search-status" class="hint">Start or select a search stream.</p>
