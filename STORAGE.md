@@ -138,7 +138,7 @@ sqlite3 -header -column data/streams.sqlite "
   SELECT d.public_id, d.title
   FROM documents_fts
   JOIN documents d ON d.rowid = documents_fts.rowid
-  WHERE documents_fts MATCH 'sqlite'
+  WHERE documents_fts MATCH 'sql*'
   LIMIT 10;
 "
 ```
@@ -152,8 +152,9 @@ The important parts of the FTS query are:
   table. The FTS table is the searchable index, not the app's main record.
 - `content_rowid='rowid'`: makes `documents_fts.rowid` point at
   `documents.rowid`, so a search hit can be joined back to the full document.
-- `WHERE documents_fts MATCH 'sqlite'`: asks the FTS index for rows containing
-  the query terms. This avoids checking every document body one by one.
+- `WHERE documents_fts MATCH 'sql*'`: asks the FTS index for rows containing
+  tokens with the given prefix. This avoids checking every document body one by
+  one, and lets `sql` match `sqlite`.
 - `snippet(documents_fts, 1, '', '', '…', 14)`: asks FTS5 for a short matching
   fragment. Column `1` means the `body` column because the FTS table columns
   are `title` then `body`.
@@ -163,8 +164,9 @@ The important parts of the FTS query are:
 The search demo has two backends:
 
 - `scan`: Reads `documents` one row at a time and emits progress/results.
-- `fts5`: Uses `documents_fts MATCH ?` to get indexed candidates quickly, then
-  streams result events.
+- `fts5`: Turns each user term into a prefix token query such as `"sql"*`, uses
+  `documents_fts MATCH ?` to get indexed candidates quickly, then streams
+  result events. This is prefix search, not typo-fuzzy search.
 
 ## SQLite: `demo_streams`
 

@@ -202,7 +202,10 @@ function queryTerms(query: string): string[] {
 }
 
 function ftsQuery(query: string): string {
-  return queryTerms(query).map((term) => `"${term.replaceAll("\"", "\"\"")}"`).join(" OR ");
+  // FTS5 is token-based, so plain "sql" would not match the token "sqlite".
+  // Appending * makes each user term a prefix query while still avoiding fuzzy
+  // typo matching; "sql" can match "sqlite", but "sqllite" still will not.
+  return queryTerms(query).map((term) => `"${term.replaceAll("\"", "\"\"")}"*`).join(" OR ");
 }
 
 function clampNumber(value: number | undefined, fallback: number, min: number, max: number): number {
