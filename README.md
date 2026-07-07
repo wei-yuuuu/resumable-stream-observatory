@@ -168,3 +168,17 @@ public/                browser SVG/search/IndexedDB visualiser
 `GET /streams/:id` emits SSE messages whose `id` is the durable SQLite sequence
 number. The browser demo stores that number in IndexedDB only after the
 associated event is persisted.
+
+## Inspiration
+
+- [Never waste a token](https://sunilpai.dev/posts/never-waste-a-token/) by
+  Sunil Pai: the core idea of separating the provider drain from the request
+  that created it, with a durable buffer surviving client disconnects and
+  deploys.
+- [Resumable LLM Streams](https://upstash.com/blog/resumable-llm-streams) by
+  Upstash: a Redis Streams / workflow-flavored take on resumable generation and
+  reconnection.
+- [inbrowser-agent resumable package](https://github.com/davideast/inbrowser-agent/tree/main/packages/resumable):
+  browser-side resumable stream state with IndexedDB.
+- [vercel/resumable-stream](https://github.com/vercel/resumable-stream):
+  Redis-backed resumable stream primitives.
